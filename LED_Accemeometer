@@ -1,0 +1,99 @@
+// Emmett Stralka estralka@hmc.edu 11/2024
+
+#include "EasyREDVIO_ThingPlus.h"
+#include <stdio.h>
+
+// LED matrix pin mapping
+const int rowPins[7] = {13, 1, 0, 9, 10, 12, 11}; // Row pins
+const int colPins[7] = {17, 23, 22, 21, 20, 19, 18}; // Column pins
+
+// Function prototypes
+void setupLEDMatrix(void);
+void turnOnLED(int x, int y);
+void delayMs(int ms);
+int map(int value, int fromLow, int fromHigh, int toLow, int toHigh);
+int constrain(int value, int min, int max);
+
+int main(void) {
+    volatile uint8_t debug;
+    volatile int16_t x, y;
+
+    // Initialize SPI communication
+    spiInit(10, 1, 1);
+
+    // Setup the LIS3DH - configure for highest data rate and enable all axes
+    spiWrite(0x20, 0x77); // Highest conversion rate, all axis on
+    spiWrite(0x23, 0x88); // Block update, and high resolution
+
+    // Verify the WHO_AM_I register (should return 0x33 if connected properly)
+    debug = spiRead(0x0F);
+    if (debug != 0x33) {
+        printf("Error: WHO_AM_I register read failed. Received: 0x%02X\n", debug);
+    } else {
+        printf("WHO_AM_I register check passed. Value: 0x%02X\n", debug);
+    }
+
+    // Setup LED matrix
+    setupLEDMatrix();
+
+    while (1) {
+        // Swap X and Y readings due to axis reversal
+        y = spiRead(0x28) | (spiRead(0x29) << 8);
+        x = spiRead(0x2A) | (spiRead(0x2B) << 8);
+
+        // Debugging output for raw accelerometer values
+        printf("Raw X: %d, Raw Y: %d\n", x, y);
+
+        // Adjust mapping range to improve sensitivity
+        int ledX = map(x, -16384, 16384, 0, 6); // Adjusted range
+        int ledY = map(y, -16384, 16384, 0, 6);
+
+        // Clamp the values to ensure they fall within the valid range for the LED matrix
+        ledX = constrain(ledX, 0, 6);
+        ledY = constrain(ledY, 0, 6);
+
+        // Debugging output for mapped LED coordinates
+        printf("Mapped LED X: %d, Mapped LED Y: %d\n", ledX, ledY);
+
+        // Turn on the LED at the mapped coordinates
+        turnOnLED(ledX, ledY);
+
+        // Small delay to reduce flickering
+        delayMs(100);
+    }
+}
+
+// Function to setup the LED matrix
+void setupLEDMatrix(void) {
+    for (int i = 0; i < 7; i++) {
+        pinMode(rowPins[i], OUTPUT);
+        pinMode(colPins[i], OUTPUT);
+    }
+}
+
+// Function to turn on an LED given (x, y) coordinates
+void turnOnLED(int x, int y) {
+    for (int i = 0; i < 7; i++) {
+        digitalWrite(rowPins[i], LOW);
+        digitalWrite(colPins[i], HIGH);
+    }
+    digitalWrite(rowPins[y], HIGH);
+    digitalWrite(colPins[x], LOW);
+}
+
+// Function to create a delay in milliseconds
+void delayMs(int ms) {
+    for (volatile int i = 0; i < ms * 100; i++);
+}
+
+// Function to map a number from one range to another
+int map(int value, int fromLow, int fromHigh, int toLow, int toHigh) {
+    return (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+}
+
+// Function to constrain a value to a specified range
+int constrain(int value, int min, int max) {
+    if (value < min) return min;
+    else if (value > max) return max;
+    return value;
+}
